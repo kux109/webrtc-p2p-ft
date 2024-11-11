@@ -1,47 +1,74 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8">
   <title>Receiver</title>
+  <style>
+    #status { color: red; }
+  </style>
 </head>
 <body>
-  <h1>Receive File</h1>
+  <h1>Receiver Page</h1>
   <button id="connectButton">Connect</button>
-  <p id="status"></p>
+  <p id="status">Status: Not Connected</p>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
     let peerConnection;
 
-    document.getElementById('connectButton').onclick = async () => {
-      const offer = await new Promise((resolve) => {
-        socket.on('offer', ({ sdp }) => resolve(sdp));
-      });
+    async function setupConnection() {
+      peerConnection = new RTCPeerConnection();
 
-      peerConnection.setRemoteDescription(offer);
-      const answer = await peerConnection.createAnswer();
-      await peerConnection.setLocalDescription(answer);
-      socket.emit('answer', { sdp: answer });
-    };
+      peerConnection.ondatachannel = (event) => {
+        const receiveChannel = event.channel;
+        receiveChannel.onopen = () => {
+          document.getElementById('status').textContent = "Status: Connection Active";
+        };
+        receiveChannel.onclose = () => {
+          document.getElementById('status').textContent = "Status: Connection Closed";
+        };
+        receiveChannel.onmessage = (event) => {
+          const receivedFile = event.data;
+          console.log("File received:", receivedFile);
+          document.getElementById('status').textContent = "File received!";
+          // Optional: Save the file (browser security restrictions may apply)
+        };
+      };
+
+      peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit('candidate', { candidate: event.candidate });
+        }
+      };
+
+      socket.on('offer', async ({ sdp }) => {
+        await peerConnection.setRemoteDescription(sdp);
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        socket.emit('answer', { sdp: answer });
+      });
+    }
+
+    document.getElementById('connectButton').onclick = setupConnection;
 
     socket.on('candidate', ({ candidate }) => {
       peerConnection.addIceCandidate(candidate);
     });
 
-    async function setupConnection() {
-      peerConnection = new RTCPeerConnection();
-      peerConnection.ondatachannel = (event) => {
-        const channel = event.channel;
-        channel.onmessage = (event) => {
-          const file = event.data;
-          // Save file or display
-          console.log('Received file:', file);
-          document.getElementById('status').textContent = 'File received';
-        };
-      };
-    }
-
-    setupConnection();
+    // WebRTC stats logging every 5 seconds
+    setInterval(async () => {
+      if (peerConnection) {
+        const stats = await peerConnection.getStats();
+        stats.forEach((report) => {
+          if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+            console.log(`Current RTT (Round Trip Time): ${report.currentRoundTripTime}`);
+            console.log(`Available Incoming Bandwidth: ${report.availableIncomingBitrate}`);
+            console.log(`Available Outgoing Bandwidth: ${report.availableOutgoingBitrate}`);
+          }
+        });
+      }
+    }, 5000);  // Logs stats every 5 seconds
   </script>
 </body>
 </html>
