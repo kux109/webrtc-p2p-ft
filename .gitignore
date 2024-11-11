@@ -1,4 +1,6 @@
 #adding node modules in git ignore so we dont commit them
+node_modules/
+
 # Logs
 logs
 *.log
