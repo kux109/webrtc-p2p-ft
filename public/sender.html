@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Sender</title>
+</head>
+<body>
+  <h1>Send File</h1>
+  <input type="file" id="fileInput" />
+  <button id="sendButton">Send File</button>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    let peerConnection;
+
+    document.getElementById('sendButton').onclick = async () => {
+      const file = document.getElementById('fileInput').files[0];
+      const channel = peerConnection.createDataChannel('fileTransfer');
+      channel.onopen = () => {
+        channel.send(file);
+        console.log('File sent');
+      };
+
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+      socket.emit('offer', { sdp: offer });
+    };
+
+    socket.on('answer', async ({ sdp }) => {
+      await peerConnection.setRemoteDescription(sdp);
+    });
+
+    socket.on('candidate', ({ candidate }) => {
+      peerConnection.addIceCandidate(candidate);
+    });
+
+    async function setupConnection() {
+      peerConnection = new RTCPeerConnection();
+      peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit('candidate', { candidate: event.candidate });
+        }
+      };
+    }
+
+    setupConnection();
+  </script>
+</body>
+</html>
