@@ -1,74 +1,77 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Receiver</title>
-  <style>
-    #status { color: red; }
-  </style>
-</head>
-<body>
-  <h1>Receiver Page</h1>
-  <button id="connectButton">Connect</button>
-  <p id="status">Status: Not Connected</p>
+<script>
+  const socket = io();
+  const status = document.getElementById('status');
+  let peerConnection;
+  let dataChannel;
+  let receivedFile = [];
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script>
-    const socket = io();
-    let peerConnection;
+  // Notify the server that the receiver is ready
+  socket.emit('receiverReady');
+  console.log("Receiver ready, notifying server.");
 
-    async function setupConnection() {
-      peerConnection = new RTCPeerConnection();
+  socket.on('offer', (data) => {
+    console.log("Received offer from sender:", data);
+    peerConnection = new RTCPeerConnection();
 
-      peerConnection.ondatachannel = (event) => {
-        const receiveChannel = event.channel;
-        receiveChannel.onopen = () => {
-          document.getElementById('status').textContent = "Status: Connection Active";
-        };
-        receiveChannel.onclose = () => {
-          document.getElementById('status').textContent = "Status: Connection Closed";
-        };
-        receiveChannel.onmessage = (event) => {
-          const receivedFile = event.data;
-          console.log("File received:", receivedFile);
-          document.getElementById('status').textContent = "File received!";
-          // Optional: Save the file (browser security restrictions may apply)
-        };
+    // Handle incoming data channel
+    peerConnection.ondatachannel = (event) => {
+      console.log("Data channel created:", event.channel);
+      dataChannel = event.channel;
+
+      dataChannel.onmessage = (event) => {
+        console.log("Received chunk of data:", event.data);
+        const chunk = event.data;
+        receivedFile.push(chunk);
       };
 
-      peerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-          socket.emit('candidate', { candidate: event.candidate });
-        }
+      dataChannel.onopen = () => {
+        console.log("Data channel is open.");
+        status.textContent = "Connection established, receiving file...";
       };
 
-      socket.on('offer', async ({ sdp }) => {
-        await peerConnection.setRemoteDescription(sdp);
-        const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
-        socket.emit('answer', { sdp: answer });
+      dataChannel.onclose = () => {
+        console.log("Data channel closed, saving received file.");
+        // Save the received file
+        const blob = new Blob(receivedFile, { type: 'application/octet-stream' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'received_file';
+        link.click();
+        status.textContent = "File received and downloaded!";
+      };
+    };
+
+    // Set remote description and create answer
+    console.log("Setting remote description...");
+    peerConnection.setRemoteDescription(new RTCSessionDescription(data))
+      .then(() => {
+        console.log("Remote description set successfully.");
+        return peerConnection.createAnswer();
+      })
+      .then(answer => {
+        console.log("Created answer:", answer);
+        return peerConnection.setLocalDescription(answer);
+      })
+      .then(() => {
+        console.log("Local description set, sending answer.");
+        socket.emit('answer', peerConnection.localDescription);
+      })
+      .catch(err => {
+        console.error("Error handling offer/answer: ", err);
       });
-    }
 
-    document.getElementById('connectButton').onclick = setupConnection;
-
-    socket.on('candidate', ({ candidate }) => {
-      peerConnection.addIceCandidate(candidate);
-    });
-
-    // WebRTC stats logging every 5 seconds
-    setInterval(async () => {
-      if (peerConnection) {
-        const stats = await peerConnection.getStats();
-        stats.forEach((report) => {
-          if (report.type === 'candidate-pair' && report.state === 'succeeded') {
-            console.log(`Current RTT (Round Trip Time): ${report.currentRoundTripTime}`);
-            console.log(`Available Incoming Bandwidth: ${report.availableIncomingBitrate}`);
-            console.log(`Available Outgoing Bandwidth: ${report.availableOutgoingBitrate}`);
-          }
-        });
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        console.log("Sending ICE candidate:", event.candidate);
+        socket.emit('candidate', event.candidate);
       }
-    }, 5000);  // Logs stats every 5 seconds
-  </script>
-</body>
-</html>
+    };
+  });
+
+  socket.on('candidate', (data) => {
+    console.log("Received ICE candidate:", data);
+    peerConnection.addIceCandidate(new RTCIceCandidate(data))
+      .catch(err => console.error("Error adding ICE candidate: ", err));
+  });
+
+</script>

@@ -1,80 +1,116 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Sender</title>
-  <style>
-    #status { color: red; }
-  </style>
-</head>
-<body>
-  <h1>Sender Page</h1>
-  <button id="connectButton">Connect</button>
-  <p id="status">Status: Not Connected</p>
-  <input type="file" id="fileInput" />
-  <button id="sendButton" disabled>Send File</button>
+<script>
+  const socket = io();
+  const status = document.getElementById('status');
+  const connectBtn = document.getElementById('connectBtn');
+  const sendBtn = document.getElementById('sendBtn');
+  const fileInput = document.getElementById('fileInput');
+  
+  let peerConnection;
+  let dataChannel;
+  let file;
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script>
-    const socket = io();
-    let peerConnection;
-    let dataChannel;
+  socket.on('receiverReady', () => {
+    console.log("Receiver is ready for connection.");
+    status.textContent = "Receiver is ready, you can connect now.";
+    connectBtn.disabled = false;
+  });
 
-    async function setupConnection() {
-      peerConnection = new RTCPeerConnection();
-      dataChannel = peerConnection.createDataChannel("fileTransfer");
+  socket.on('connected', () => {
+    console.log("Receiver is connected, ready to send file.");
+    status.textContent = "Receiver connected, ready to send.";
+    connectBtn.disabled = true;
+    sendBtn.disabled = false;
+  });
 
-      dataChannel.onopen = () => {
-        document.getElementById('status').textContent = "Status: Connection Active";
-        document.getElementById('sendButton').disabled = false;
-      };
+  socket.on('offer', (data) => {
+    console.log("Received offer from receiver:", data);
+    peerConnection = new RTCPeerConnection();
 
-      dataChannel.onclose = () => {
-        document.getElementById('status').textContent = "Status: Connection Closed";
-      };
+    dataChannel = peerConnection.createDataChannel('fileTransfer');
+    console.log("Data channel created:", dataChannel);
 
-      peerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-          socket.emit('candidate', { candidate: event.candidate });
-        }
-      };
+    dataChannel.onopen = () => {
+      console.log("Data channel is open.");
+      status.textContent = "Connection established, ready to send file.";
+    };
 
-      const offer = await peerConnection.createOffer();
-      await peerConnection.setLocalDescription(offer);
-      socket.emit('offer', { sdp: offer });
-    }
+    peerConnection.setRemoteDescription(new RTCSessionDescription(data))
+      .then(() => {
+        console.log("Remote description set successfully.");
+        return peerConnection.createAnswer();
+      })
+      .then(answer => {
+        console.log("Created answer:", answer);
+        return peerConnection.setLocalDescription(answer);
+      })
+      .then(() => {
+        console.log("Local description set, sending answer.");
+        socket.emit('answer', peerConnection.localDescription);
+      })
+      .catch(err => console.error("Error handling offer/answer: ", err));
 
-    document.getElementById('connectButton').onclick = setupConnection;
+    peerConnection.onicecandidate = event => {
+      if (event.candidate) {
+        console.log("Sending ICE candidate:", event.candidate);
+        socket.emit('candidate', event.candidate);
+      }
+    };
+  });
 
-    document.getElementById('sendButton').onclick = () => {
-      const file = document.getElementById('fileInput').files[0];
-      if (file && dataChannel.readyState === 'open') {
-        dataChannel.send(file);
-        console.log('File sent:', file);
+  function connect() {
+    console.log("Starting connection process...");
+
+    peerConnection = new RTCPeerConnection();
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        console.log("Sending ICE candidate:", event.candidate);
+        socket.emit('candidate', event.candidate);
       }
     };
 
-    socket.on('answer', async ({ sdp }) => {
-      await peerConnection.setRemoteDescription(sdp);
-    });
+    peerConnection.createDataChannel('fileTransfer');
+    console.log("Data channel created.");
 
-    socket.on('candidate', ({ candidate }) => {
-      peerConnection.addIceCandidate(candidate);
-    });
+    peerConnection.createOffer()
+      .then(offer => {
+        console.log("Offer created:", offer);
+        peerConnection.setLocalDescription(offer);
+        socket.emit('offer', offer);
+        status.textContent = "Sending offer...";
+      })
+      .catch(err => console.error("Error creating offer: ", err));
+  }
 
-    // WebRTC stats logging every 5 seconds
-    setInterval(async () => {
-      if (peerConnection) {
-        const stats = await peerConnection.getStats();
-        stats.forEach((report) => {
-          if (report.type === 'candidate-pair' && report.state === 'succeeded') {
-            console.log(`Current RTT (Round Trip Time): ${report.currentRoundTripTime}`);
-            console.log(`Available Incoming Bandwidth: ${report.availableIncomingBitrate}`);
-            console.log(`Available Outgoing Bandwidth: ${report.availableOutgoingBitrate}`);
-          }
-        });
-      }
-    }, 5000);  // Logs stats every 5 seconds
-  </script>
-</body>
-</html>
+  function sendFile() {
+    const fileReader = new FileReader();
+    fileReader.onload = () => {
+      const chunkSize = 16384;
+      const fileBuffer = fileReader.result;
+      let offset = 0;
+
+      const sendChunk = () => {
+        console.log("Sending chunk of size:", chunkSize);
+        const chunk = fileBuffer.slice(offset, offset + chunkSize);
+        dataChannel.send(chunk);
+        offset += chunkSize;
+
+        if (offset < fileBuffer.byteLength) {
+          sendChunk();
+        } else {
+          console.log("File transfer complete.");
+          status.textContent = "File transfer complete.";
+        }
+      };
+
+      sendChunk();
+    };
+    
+    file = fileInput.files[0];
+    if (file) {
+      console.log("Selected file:", file);
+      fileReader.readAsArrayBuffer(file);
+    } else {
+      console.log("No file selected.");
+    }
+  }
+</script>
