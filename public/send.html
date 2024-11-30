@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Send File</title>
+</head>
+<body>
+  <h1>Send File</h1>
+  <input type="file" id="fileInput">
+  <button id="sendButton">Send File</button>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const sendButton = document.getElementById('sendButton');
+    const socket = io();
+    const peerConnection = new RTCPeerConnection();
+
+    socket.on('signal', async (data) => {
+      try {
+        if (data.offer) {
+          console.log('Received offer:', data.offer);
+          await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+          const answer = await peerConnection.createAnswer();
+          await peerConnection.setLocalDescription(answer);
+          socket.emit('signal', { answer });
+        } else if (data.answer) {
+          console.log('Received answer:', data.answer);
+          await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+        } else if (data.candidate) {
+          console.log('Received candidate:', data.candidate);
+          await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+        }
+      } catch (error) {
+        console.error('Error handling signal:', error);
+      }
+    });
+
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit('signal', { candidate: event.candidate });
+      }
+    };
+
+    const dataChannel = peerConnection.createDataChannel('fileTransfer');
+
+    dataChannel.onopen = () => {
+      console.log('Data channel is open');
+    };
+
+    dataChannel.onclose = () => {
+      console.log('Data channel is closed');
+    };
+
+    sendButton.addEventListener('click', () => {
+      const file = fileInput.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          if (dataChannel.readyState === 'open') {
+            dataChannel.send(event.target.result);
+          } else {
+            console.error('Data channel is not open');
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      }
+    });
+
+    (async () => {
+      try {
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        socket.emit('signal', { offer });
+      } catch (error) {
+        console.error('Error creating offer:', error);
+      }
+    })();
+  </script>
+</body>
+</html>

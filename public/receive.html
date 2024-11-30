@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Receive File</title>
+</head>
+<body>
+  <h1>Receive File</h1>
+  <div id="downloadLink"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const downloadLink = document.getElementById('downloadLink');
+    const socket = io();
+    const peerConnection = new RTCPeerConnection();
+
+    socket.on('signal', async (data) => {
+      try {
+        if (data.offer) {
+          console.log('Received offer:', data.offer);
+          await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+          const answer = await peerConnection.createAnswer();
+          await peerConnection.setLocalDescription(answer);
+          socket.emit('signal', { answer });
+        } else if (data.answer) {
+          console.log('Received answer:', data.answer);
+          await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+        } else if (data.candidate) {
+          console.log('Received candidate:', data.candidate);
+          await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+        }
+      } catch (error) {
+        console.error('Error handling signal:', error);
+      }
+    });
+
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit('signal', { candidate: event.candidate });
+      }
+    };
+
+    peerConnection.ondatachannel = (event) => {
+      const dataChannel = event.channel;
+      dataChannel.onmessage = (event) => {
+        const blob = new Blob([event.data]);
+        const url = URL.createObjectURL(blob);
+        downloadLink.innerHTML = `<a href="${url}" download="downloaded_file">Download Received File</a>`;
+      };
+    };
+  </script>
+</body>
+</html>
