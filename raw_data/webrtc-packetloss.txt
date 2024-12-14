@@ -1,0 +1,2 @@
+Sent packets: 46, Received packets: 46, Loss rate: 0.00%
+WebRTC Packet Loss Rate: 0.00%

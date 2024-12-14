@@ -16,6 +16,7 @@
     const sendButton = document.getElementById('sendButton');
     const socket = io();
     const peerConnection = new RTCPeerConnection();
+    const CHUNK_SIZE = 16 * 1024; // 16 KB
 
     socket.on('signal', async (data) => {
       try {
@@ -56,15 +57,39 @@
     sendButton.addEventListener('click', () => {
       const file = fileInput.files[0];
       if (file) {
-        const reader = new FileReader();
-        reader.onload = (event) => {
+        let offset = 0;
+
+        const readSlice = (o) => {
+          const slice = file.slice(o, o + CHUNK_SIZE);
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            sendChunk(event.target.result);
+          };
+          reader.readAsArrayBuffer(slice);
+        };
+
+        const sendChunk = (chunk) => {
           if (dataChannel.readyState === 'open') {
-            dataChannel.send(event.target.result);
+            dataChannel.send(chunk);
+            offset += CHUNK_SIZE;
+            if (offset < file.size) {
+              if (dataChannel.bufferedAmount > CHUNK_SIZE * 10) {
+                dataChannel.onbufferedamountlow = () => {
+                  dataChannel.onbufferedamountlow = null;
+                  readSlice(offset);
+                };
+              } else {
+                readSlice(offset);
+              }
+            } else {
+              console.log('File sent successfully');
+            }
           } else {
             console.error('Data channel is not open');
           }
         };
-        reader.readAsArrayBuffer(file);
+
+        readSlice(0);
       }
     });
 

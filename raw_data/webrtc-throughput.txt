@@ -1,0 +1,1 @@
+Duration: 61.23033881187439 seconds, Total bytes: 120959215, Throughput: 15803827.624947572 bps

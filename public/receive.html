@@ -14,6 +14,7 @@
     const downloadLink = document.getElementById('downloadLink');
     const socket = io();
     const peerConnection = new RTCPeerConnection();
+    let receivedBuffers = [];
 
     socket.on('signal', async (data) => {
       try {
@@ -44,9 +45,16 @@
     peerConnection.ondatachannel = (event) => {
       const dataChannel = event.channel;
       dataChannel.onmessage = (event) => {
-        const blob = new Blob([event.data]);
-        const url = URL.createObjectURL(blob);
-        downloadLink.innerHTML = `<a href="${url}" download="downloaded_file">Download Received File</a>`;
+        receivedBuffers.push(event.data);
+        console.log('Received chunk:', event.data.byteLength);
+
+        // Check if the last chunk has been received
+        if (event.data.byteLength < 16 * 1024) {
+          const blob = new Blob(receivedBuffers);
+          const url = URL.createObjectURL(blob);
+          downloadLink.innerHTML = `<a href="${url}" download="downloaded_file">Download Received File</a>`;
+          receivedBuffers = []; // Clear the buffer
+        }
       };
     };
   </script>

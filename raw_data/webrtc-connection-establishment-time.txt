@@ -1,0 +1,4 @@
+Start time recorded: 1733948407.672434
+Processing packet 2...
+End time recorded: 1733948407.672925  
+WebRTC Connection Establishment Time: 0.00 seconds
